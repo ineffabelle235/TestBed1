@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Symmetry Doodle Pad</title>
+<style>
+  :root {
+    --bg: #14151a;
+    --panel: #1e2028;
+    --panel-border: #2c2f3a;
+    --text: #e8e8ec;
+    --text-dim: #9a9ba6;
+    --accent: #7c5cff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  header .sub {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  #canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  #panel {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 10px 16px 14px;
+    background: var(--panel);
+    border-top: 1px solid var(--panel-border);
+  }
+  .control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .control .val {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  input[type="range"] {
+    width: 120px;
+    accent-color: var(--accent);
+  }
+  input[type="color"] {
+    width: 34px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+  }
+  button {
+    background: #2a2c37;
+    color: var(--text);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #34364400; background: #35374420; }
+  button:hover { background: #35374a; }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  label.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .spacer { flex: 1; }
+  #hint {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: var(--text-dim);
+    pointer-events: none;
+    opacity: 0.7;
+    transition: opacity 0.4s;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Symmetry Doodle Pad</h1>
+    <span class="sub">draw a line, watch it bloom into a mandala</span>
+  </header>
+
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="hint">click / tap and drag to draw</div>
+  </div>
+
+  <div id="panel">
+    <div class="control">
+      <span>symmetry: <span class="val" id="symVal">10</span></span>
+      <input type="range" id="symmetry" min="1" max="32" value="10" step="1">
+    </div>
+
+    <div class="control">
+      <span>brush size: <span class="val" id="sizeVal">4</span></span>
+      <input type="range" id="brushSize" min="1" max="30" value="4" step="1">
+    </div>
+
+    <div class="control">
+      <span>color</span>
+      <input type="color" id="color" value="#7c5cff">
+    </div>
+
+    <label class="checkbox">
+      <input type="checkbox" id="rainbow"> rainbow mode
+    </label>
+
+    <label class="checkbox">
+      <input type="checkbox" id="mirror" checked> mirror reflect
+    </label>
+
+    <label class="checkbox">
+      <input type="checkbox" id="fade"> fade trails
+    </label>
+
+    <div class="spacer"></div>
+
+    <button id="clearBtn">Clear</button>
+    <button id="saveBtn" class="primary">Save PNG</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('canvas-wrap');
+  const hint = document.getElementById('hint');
+
+  const symmetryInput = document.getElementById('symmetry');
+  const symVal = document.getElementById('symVal');
+  const brushSizeInput = document.getElementById('brushSize');
+  const sizeVal = document.getElementById('sizeVal');
+  const colorInput = document.getElementById('color');
+  const rainbowInput = document.getElementById('rainbow');
+  const mirrorInput = document.getElementById('mirror');
+  const fadeInput = document.getElementById('fade');
+  const clearBtn = document.getElementById('clearBtn');
+  const saveBtn = document.getElementById('saveBtn');
+
+  let dpr = Math.max(1, window.devicePixelRatio || 1);
+  let width = 0, height = 0;
+  let hue = 0;
+
+  function resize() {
+    const rect = wrap.getBoundingClientRect();
+    width = rect.width;
+    height = rect.height;
+    const prev = document.createElement('canvas');
+    prev.width = canvas.width;
+    prev.height = canvas.height;
+    const hadContent = canvas.width > 0 && canvas.height > 0;
+    if (hadContent) prev.getContext('2d').drawImage(canvas, 0, 0);
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (hadContent) {
+      ctx.drawImage(prev, 0, 0, prev.width, prev.height, 0, 0, width, height);
+    }
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  function center() {
+    return { cx: width / 2, cy: height / 2 };
+  }
+
+  function currentColor() {
+    if (rainbowInput.checked) {
+      hue = (hue + 2) % 360;
+      return `hsl(${hue}, 85%, 60%)`;
+    }
+    return colorInput.value;
+  }
+
+  function drawSegment(x0, y0, x1, y1) {
+    const { cx, cy } = center();
+    const n = parseInt(symmetryInput.value, 10);
+    const size = parseInt(brushSizeInput.value, 10);
+    const color = currentColor();
+    const mirror = mirrorInput.checked;
+
+    ctx.lineWidth = size;
+    ctx.strokeStyle = color;
+
+    // translate points relative to center
+    const rx0 = x0 - cx, ry0 = y0 - cy;
+    const rx1 = x1 - cx, ry1 = y1 - cy;
+
+    for (let i = 0; i < n; i++) {
+      const angle = (i * 2 * Math.PI) / n;
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+
+      // rotated
+      const p0 = { x: rx0 * cosA - ry0 * sinA, y: rx0 * sinA + ry0 * cosA };
+      const p1 = { x: rx1 * cosA - ry1 * sinA, y: rx1 * sinA + ry1 * cosA };
+
+      strokeLine(cx + p0.x, cy + p0.y, cx + p1.x, cy + p1.y);
+
+      if (mirror) {
+        // mirror across the rotated axis (flip y before rotating)
+        const mp0 = { x: rx0 * cosA - (-ry0) * sinA, y: rx0 * sinA + (-ry0) * cosA };
+        const mp1 = { x: rx1 * cosA - (-ry1) * sinA, y: rx1 * sinA + (-ry1) * cosA };
+        strokeLine(cx + mp0.x, cy + mp0.y, cx + mp1.x, cy + mp1.y);
+      }
+    }
+  }
+
+  function strokeLine(x0, y0, x1, y1) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  }
+
+  function pointerPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const point = e.touches ? e.touches[0] : e;
+    return {
+      x: point.clientX - rect.left,
+      y: point.clientY - rect.top,
+    };
+  }
+
+  function fadeTick() {
+    if (fadeInput.checked) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,0.02)';
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+    }
+  }
+  let fadeTimer = setInterval(fadeTick, 40);
+
+  function start(e) {
+    e.preventDefault();
+    drawing = true;
+    hint.style.opacity = '0';
+    const { x, y } = pointerPos(e);
+    lastX = x; lastY = y;
+    drawSegment(x, y, x + 0.1, y + 0.1);
+  }
+
+  function move(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const { x, y } = pointerPos(e);
+    drawSegment(lastX, lastY, x, y);
+    lastX = x; lastY = y;
+  }
+
+  function end(e) {
+    drawing = false;
+  }
+
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', end);
+
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+
+  symmetryInput.addEventListener('input', () => symVal.textContent = symmetryInput.value);
+  brushSizeInput.addEventListener('input', () => sizeVal.textContent = brushSizeInput.value);
+
+  clearBtn.addEventListener('click', () => {
+    ctx.clearRect(0, 0, width, height);
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const link = document.createElement('a');
+    link.download = `symmetry-doodle-${Date.now()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+})();
+</script>
+</body>
+</html>
